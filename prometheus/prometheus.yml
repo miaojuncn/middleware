@@ -1,0 +1,13 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: virtual-machine
+    honor_timestamps: true
+    metrics_path: /metrics
+    scheme: http
+    follow_redirects: true
+    consul_sd_configs:
+      - server: 192.168.10.47:80
+        services: ["virtual-machine"]
