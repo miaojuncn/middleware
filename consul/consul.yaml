@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: consul-server
-  namespace: consul
+  namespace: middleware
 spec:
   serviceName: consul-server
   podManagementPolicy: Parallel
@@ -60,11 +60,11 @@ spec:
               name: dns-udp
               protocol: UDP
           env:
-            # - name: NAMESPACE
-            #   valueFrom:
-            #     fieldRef:
-            #       apiVersion: v1
-            #       fieldPath: metadata.namespace
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
             - name: POD_IP
               valueFrom:
                 fieldRef:
@@ -78,12 +78,12 @@ spec:
             - |
               exec /usr/local/bin/docker-entrypoint.sh consul agent \
                 -server \
-                -advertise="$(POD_IP)" \
+                -advertise="${POD_IP}" \
                 -bind=0.0.0.0 \
                 -bootstrap-expect=3 \
                 -datacenter=dc1 \
                 -data-dir=/consul/data \
-                -retry-join=consul-server.consul.svc:8301 \
+                -retry-join=consul-server.${NAMESPACE}.svc:8301 \
                 -client=0.0.0.0 \
                 -domain=consul \
                 -ui
@@ -120,10 +120,10 @@ spec:
       spec:
         accessModes:
           - ReadWriteOnce
-        storageClassName: nfs-client
+        storageClassName: alibabacloud-cnfs-nas
         resources:
           requests:
-            storage: 10Gi
+            storage: 5Gi
 ---
 apiVersion: v1
 kind: Service
@@ -132,7 +132,7 @@ metadata:
     app: consul
     component: server
   name: consul-server
-  namespace: consul
+  namespace: middleware
 spec:
   clusterIP: None
   ports:
@@ -185,7 +185,7 @@ metadata:
     app: consul
     component: dns
   name: consul-dns
-  namespace: consul
+  namespace: middleware
 spec:
   ports:
     - name: dns-tcp
@@ -208,7 +208,7 @@ metadata:
     app: consul
     component: client
   name: consul-client
-  namespace: consul
+  namespace: middleware
 spec:
   selector:
     matchLabels:
@@ -229,7 +229,7 @@ spec:
             - |
               exec /usr/local/bin/docker-entrypoint.sh consul agent \
                 -node="${NODE}" \
-                -advertise="$(POD_IP)" \
+                -advertise="${POD_IP}" \
                 -bind=0.0.0.0 \
                 -client=0.0.0.0 \
                 -node-meta=host-ip:${HOST_IP} \
@@ -324,22 +324,47 @@ spec:
         - emptyDir:
             medium: Memory
           name: consul-data
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   labels:
+#     app: consul
+#     component: ui
+#   name: consul-ui
+#   namespace: consul
+# spec:
+#   ports:
+#     - name: http
+#       port: 80
+#       protocol: TCP
+#       targetPort: 8500
+#   selector:
+#     app: consul
+#     component: server
+#   type: LoadBalancer
 ---
-apiVersion: v1
-kind: Service
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  labels:
-    app: consul
-    component: ui
   name: consul-ui
-  namespace: consul
+  namespace: middleware
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt
 spec:
-  ports:
-    - name: http
-      port: 80
-      protocol: TCP
-      targetPort: 8500
-  selector:
-    app: consul
-    component: server
-  type: LoadBalancer
+  tls:
+    - hosts:
+        - "csl.devops.rivtower.com"
+      secretName: consul-tls
+  rules:
+    - host: csl.devops.rivtower.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: consul-server
+                port:
+                  name: http
